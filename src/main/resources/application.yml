@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: 07_주문요약_메인실습
+
+  ai:
+    openai:
+      # 키는 소스에 넣지 않는다.  export OPENAI_API_KEY="sk-..."
+      api-key: ${OPENAI_API_KEY}
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.7   # 예시값 — Lab1AiConfig의 summaryChatClient 빈이 이 기본값을 덮어쓴다
+
+server:
+  port: 8080
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    doc-expansion: none
+
+logging:
+  level:
+    com.skala: DEBUG
