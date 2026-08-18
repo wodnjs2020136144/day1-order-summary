@@ -140,7 +140,7 @@ $ grep -rn "ChatClient" src/main/java/com/skala/day1/web/
 
 ## 5. 협업 방식
 
-계층 경계(Controller/Repository ↔ Service/Config)를 기준으로 역할을 나눴다. 갈라지기 전에 도메인 모델(`Order`, `OrderStatus`)과 저장소 시그니처, 응답 DTO를 먼저 계약으로 고정한 뒤 각자 맡은 파일을 구현하고 합쳤다. 황재원(P345)은 AI 계층(`Lab1AiConfig`, `OrderSummaryService`), 박성우(P322)는 웹·데이터 계층(`OrderRepository`, `OrderSummaryController`, `Lab1ExceptionHandler`)을 담당했다 — 각 파트의 상세 설계 근거는 7절에 정리했다.
+계층 경계(Controller/Repository ↔ Service/Config)를 기준으로 역할을 나눴다. 갈라지기 전에 도메인 모델(`Order`, `OrderStatus`)과 저장소 시그니처, 응답 DTO를 먼저 계약으로 고정한 뒤 각자 맡은 파일을 구현하고 합쳤다. 황재원(P345)은 AI 계층(`Lab1AiConfig`, `OrderSummaryService`), 박성우(P322)는 웹·데이터 계층(`OrderRepository`, `OrderSummaryController`, `Lab1ExceptionHandler`)을 담당했다 — 각 파트의 상세 설계 근거는 7·8절에 정리했다.
 
 ---
 
@@ -168,7 +168,7 @@ $ grep -rn "ChatClient" src/main/java/com/skala/day1/web/
 
 ## 7. 담당 파트 상세 가이드 — AI 계층 (황재원 · P345)
 
-발표·질의응답에서 이 파트를 설명할 때 쓸 수 있도록, 담당한 두 파일을 코드 흐름 순서대로 정리했다.
+담당한 두 파일을 코드 흐름 순서대로 정리했다.
 
 ### 7-1. `Lab1AiConfig.java` — "왜 빈을 이렇게 만들었나"
 
@@ -234,7 +234,7 @@ private String fallback(Order order) {
 }
 ```
 
-**흐름을 설명하는 순서 (발표할 때 이 순서로):**
+**코드 흐름 순서대로 설명하면:**
 
 1. **`summarize()`가 먼저 하는 일 — 모델을 부르기 전에 권한부터 확인한다.** `orders.findByIdAndOwnerId(orderId, userId)`가 빈 `Optional`을 돌려주면 `OrderNotFoundException`을 던지고 그대로 끝난다. `callModel()`은 아예 호출되지 않는다 — 즉 **없는 주문이나 남의 주문에 대해서는 모델 호출 비용이 전혀 발생하지 않는다.** (완료 기준 7번 테스트 `OrderSummaryServiceTest.없는_주문이거나_남의_주문이면_모델을_부르지_않고_예외를_던진다()`가 이걸 검증한다.)
 2. **프롬프트를 문자열로 이어 붙이지 않고 `{placeholder}` + `.param()`을 쓴 이유.** `order.item()`이나 `order.eta()`에 예를 들어 사용자가 통제할 수 있는 값이 들어간다면(지금은 고정 데이터라 안전하지만), 문자열 이어붙이기는 그 값이 프롬프트의 지시문처럼 해석될 위험이 있다. `.param()` 바인딩은 값과 지시문을 구조적으로 분리한다.
@@ -244,7 +244,102 @@ private String fallback(Order order) {
 
 ---
 
-## 8. 산출물 위치
+## 8. 담당 파트 상세 가이드 — 웹·데이터 계층 (박성우 · P322)
+
+담당한 세 파일을 요청이 실제로 흘러가는 순서(저장소 → 컨트롤러 → 예외 처리)대로 정리했다.
+
+### 8-1. `OrderRepository.java` — "권한 확인을 왜 쿼리 조건 안에 넣었나"
+
+```java
+@Repository
+public class OrderRepository {
+
+    private static final Map<String, Order> 주문 = Map.of(
+            "12345", new Order("12345", "user1", "무선 이어폰", OrderStatus.배송중, "2026-08-20"),
+            "12346", new Order("12346", "user1", "기계식 키보드", OrderStatus.결제완료, "2026-08-22"),
+            "12347", new Order("12347", "user1", "USB-C 케이블", OrderStatus.배송완료, "2026-08-15"),
+            "99999", new Order("99999", "user2", "캠핑 의자", OrderStatus.배송중, "2026-08-21"));
+
+    public Optional<Order> findByIdAndOwnerId(String orderId, String ownerId) {
+        return Optional.ofNullable(주문.get(orderId))
+                .filter(o -> o.ownerId().equals(ownerId));
+    }
+}
+```
+
+**설계 포인트:**
+
+1. **인메모리 `Map`을 쓴 이유.** 오늘 실습의 학습 지점은 AI 계층(온도 고정·폴백·finishReason 처리)이지 저장소 구현체가 아니다. `01_간식추천_3계층`의 `SnackRepository`와 같은 방식으로 저장소를 가장 단순하게 유지해서, 팀원 두 명이 90분 안에 각자 파트에 집중할 수 있게 했다. `@Repository` 애노테이션만 그대로 두면 나중에 JPA 구현체로 바꿔도 이 클래스를 호출하는 `OrderSummaryService` 쪽 코드는 한 줄도 안 바뀐다.
+2. **`findByIdAndOwnerId(orderId, ownerId)` 시그니처 — 조회와 권한 확인을 한 메서드로 합친 이유.** `findById(orderId)`로 먼저 찾고 나중에 `owner.equals(userId)`를 검사하는 방식도 가능하지만, 그러면 호출하는 쪽(서비스 계층)이 "존재하지만 권한 없음"과 "존재하지 않음"을 각각 다르게 처리하고 싶은 유혹이 생긴다. 애초에 저장소가 **"주문번호 + 소유자가 둘 다 맞아야 찾은 것"**이라는 계약으로 설계하면, 두 실패 케이스가 호출하는 쪽에서 아예 구분되지 않는 빈 `Optional` 하나로만 온다 — 컨트롤러·서비스가 실수로 둘을 다르게 응답할 방법 자체가 없다.
+3. **`.filter(o -> o.ownerId().equals(ownerId))`가 핵심 한 줄.** `Optional.ofNullable(...)`로 존재 여부를 먼저 감싸고, `.filter(...)`로 소유자 조건을 다시 거른다. 조건 중 하나라도 어긋나면 결과는 항상 빈 `Optional`이다.
+
+### 8-2. `OrderSummaryController.java` — "왜 컨트롤러가 이렇게 얇은가"
+
+```java
+@RestController
+@RequestMapping("/lab1/orders")
+@Tag(name = "Day1 실습 · 주문 요약")
+public class OrderSummaryController {
+
+    private final OrderSummaryService service;   // ← ChatClient는 여기 없다
+
+    public OrderSummaryController(OrderSummaryService service) {
+        this.service = service;
+    }
+
+    @GetMapping("/{orderId}/summary")
+    @Operation(summary = "주문 한 문장 요약",
+               description = "본인 주문만 요약된다. 모델을 호출하므로 비용이 발생한다.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "요약 성공"),
+        @ApiResponse(responseCode = "404", description = "없는 주문이거나 남의 주문")})
+    public SummaryResponse summary(
+            @Parameter(description = "주문번호", example = "12345") @PathVariable String orderId,
+            @Parameter(description = "조회 주체", example = "user1") @RequestParam String userId) {
+        return service.summarize(orderId, userId);
+    }
+}
+```
+
+**설계 포인트:**
+
+1. **의존성이 `OrderSummaryService` 하나뿐인 이유.** 컨트롤러 생성자에 `ChatClient`나 `OrderRepository`가 들어오지 않는다 — 요청을 받아서 서비스에 그대로 넘기고, 서비스가 돌려준 값을 그대로 반환하는 것 말고는 아무 일도 하지 않는다. 완료 기준 3번("계층 분리")이 요구하는 바를 코드 구조 자체로 강제한 것이다. 나중에 요약 로직이 완전히 바뀌거나 AI 공급자가 교체돼도, 이 파일은 손댈 이유가 없다.
+2. **`@Operation`·`@ApiResponses`·`@Parameter(example=...)`를 붙인 이유.** Swagger UI에서 "이 API가 뭘 하는지, 어떤 값을 넣어야 하는지, 실패하면 뭐가 오는지"를 코드만 보고도 알 수 있게 했다. 완료 기준 6번(문서화)이 요구하는 지점이고, 실제로 3절 캡처가 전부 이 문서화 덕분에 별도 설명 없이 Try it out만으로 재현 가능했다.
+3. **404만 문서에 명시하고 503은 적지 않은 이유.** 404(권한/존재)는 이 API의 정상적인 실패 케이스지만, 503은 `Lab1ExceptionHandler`가 잡는 "예기치 못한" 오류라서 API 명세의 일부로 약속하기보다는 예외 상황으로 남겨뒀다.
+
+### 8-3. `Lab1ExceptionHandler.java` · `ErrorResponse.java` — "예외를 한 곳에서만 변환하는 이유"
+
+```java
+@RestControllerAdvice
+class Lab1ExceptionHandler {
+
+    @ExceptionHandler(OrderNotFoundException.class)
+    ResponseEntity<ErrorResponse> notFound(OrderNotFoundException e) {
+        return ResponseEntity.status(404).body(new ErrorResponse("주문을 찾을 수 없습니다.", null));
+    }
+
+    @ExceptionHandler(Exception.class)   // 서비스 계층 폴백을 뚫고 올라온, 예기치 못한 오류
+    ResponseEntity<ErrorResponse> unexpected(Exception e) {
+        String traceId = UUID.randomUUID().toString().substring(0, 8);
+        log.error("[{}] 요약 실패", traceId, e);   // 상세는 로그에만
+        return ResponseEntity.status(503).body(
+                new ErrorResponse("요약을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.", traceId));
+    }
+}
+
+public record ErrorResponse(String message, String traceId) {}
+```
+
+**설계 포인트:**
+
+1. **`@RestControllerAdvice`로 예외 처리를 한 곳에 모은 이유.** 컨트롤러마다(지금은 하나뿐이지만) `try/catch`를 직접 쓰면 응답 형식이 파일마다 미묘하게 달라지기 쉽다. 예외 → 응답 변환 규칙을 이 클래스 하나로 모아두면, "실패했을 때 사용자에게 뭐가 나가는가"라는 질문의 답이 프로젝트 전체에서 단 한 곳에만 있다.
+2. **`OrderNotFoundException`과 `Exception`을 서로 다른 상태 코드로 나눈 이유.** 404는 클라이언트가 잘못 요청한 경우(주문번호·권한 문제)이고, 503은 서버 쪽에서 예기치 못하게 실패한 경우다. 이 둘을 같은 500대로 뭉뚱그리면 클라이언트 입장에서 "내가 잘못 보낸 요청인지, 재시도하면 되는 문제인지" 구분할 수 없다.
+3. **`ErrorResponse`에 `message`와 `traceId`만 담고 예외 객체 자체를 담지 않은 이유.** 스택트레이스나 예외 클래스 이름이 응답에 그대로 나가면 내부 구현(어떤 라이브러리를 쓰는지, 어디서 실패했는지)이 외부에 노출된다. 대신 사람이 읽을 수 있는 안전한 문구와, 개발자가 서버 로그에서 `log.error("[{}] ...", traceId, e)` 라인을 찾을 수 있는 8자리 `traceId`만 돌려준다. 8절 3-6 캡처(결함 주입으로 재현한 503)에서 실제로 `traceId`만 노출되고 예외 내용은 응답에 없는 것을 확인했다.
+4. **`notFound()`의 `traceId`가 항상 `null`인 이유.** 404는 "무언가 고장 난 상황"이 아니라 "정상적으로 예상 가능한 실패"라서 로그를 뒤져 추적할 필요가 없다. traceId는 503처럼 서버 쪽 원인을 조사해야 하는 경우에만 의미가 있다.
+
+---
+
+## 9. 산출물 위치
 
 GitHub: [https://github.com/wodnjs2020136144/day1-order-summary](https://github.com/wodnjs2020136144/day1-order-summary)
 (`SpringAI_실습/07_주문요약_메인실습` 폴더를 별도 리포지토리로 분리)
