@@ -1,6 +1,6 @@
 spring:
   application:
-    name: 07_주문요약_메인실습
+    name: day1-order-summary
 
   ai:
     openai:

@@ -198,10 +198,6 @@ class Lab1AiConfig {
 3. `.defaultOptions(ChatOptions.builder().temperature(0.0).maxTokens(120))` — **이 실습의 핵심 설계 판단.** `temperature(0.0)`은 "같은 입력이면 같은 출력"을 강제한다(요약은 창작이 아니라 정보 압축이어야 하므로 온도를 낮췄다). `maxTokens(120)`은 비용 상한이자 "한 문장 요약"이라는 요구사항을 강제하는 물리적 장치다.
 4. 빈 이름을 `summaryChatClient`로 명시한 이유 — 같은 `ChatClient` 타입 빈이 나중에 늘어날 수 있으므로(예: 알림 문구 생성용 빈), 이름 매칭이 아니라 `@Qualifier("summaryChatClient")`로 명시적으로 골라 쓰게 했다(`OrderSummaryService` 생성자 참조).
 
-**예상 질문 대비:**
-- *"temperature를 왜 0.7(기본값)이 아니라 0으로 뒀나?"* → 요약 API는 같은 주문 정보를 넣으면 매번 같은 문장이 나와야 신뢰할 수 있다. 실제로 3-5 캡처에서 19초 간격 3회 호출이 토씨 하나 안 틀리고 동일했다.
-- *"maxTokens를 더 늘리면 안 되나?"* → 늘릴 수는 있지만 "한 문장 요약"이라는 요구사항과 비용 둘 다에서 늘릴 이유가 없다. 대신 120에 걸려 응답이 잘리는 경우(`finishReason=length`)를 감지해서 폴백으로 처리하도록 서비스 계층에 방어 코드를 넣었다.
-
 ### 7-2. `OrderSummaryService.java` — "AI 호출을 왜 이렇게 감쌌나"
 
 ```java
@@ -245,11 +241,6 @@ private String fallback(Order order) {
 3. **`.call().chatResponse()`를 쓴 이유 — `.content()`가 아니라.** `.content()`는 텍스트만 돌려주지만, `finishReason`을 확인하려면 메타데이터가 필요하다. 그래서 `chatResponse()`로 전체 응답 객체를 받고, `getResult().getMetadata().getFinishReason()`으로 잘림 여부를 먼저 검사한 뒤에야 `getOutput().getText()`로 실제 텍스트를 꺼낸다.
 4. **`try/catch`가 감싸는 범위가 `callModel()` 안쪽뿐인 이유.** `summarize()` 전체를 감쌌다면 `OrderNotFoundException`(404여야 할 케이스)까지 폴백으로 삼켜져서 항상 200이 나가는 버그가 생긴다. 그래서 **"권한 확인은 try 바깥, 모델 호출만 try 안쪽"**으로 명확히 나눴다. 이게 이 파일에서 가장 실수하기 쉬운 지점이다.
 5. **`fallback()`이 반환하는 값 — 왜 원본 데이터를 그대로 조합하나.** AI가 만들어주는 "요약 문장"이 없어도, 사용자가 알아야 할 최소 정보(상품명·상태)는 원본 `Order`에서 바로 만들 수 있다. AI 계층이 통째로 죽어도 서비스는 절대 완전히 죽지 않는다는 게 이 실습의 핵심 메시지다.
-
-**예상 질문 대비:**
-- *"모델이 진짜로 실패하는 상황을 어떻게 재현했나?"* → `OPENAI_API_KEY=dummy`로 기동하면 OpenAI 인증이 실패해서 `.call()`이 예외를 던진다. 이걸로 3-4 캡처(폴백 200)를 실측했다.
-- *"503은 왜 정상적으로는 안 뜨나?"* → `callModel()`의 `catch(Exception e)`가 모든 예외를 잡아 폴백으로 바꾸기 때문이다. 그래서 7절 3-6 캡처를 찍을 때는 이 `catch` 블록을 일부러 잠깐 지우고(결함 주입) 재현한 뒤 원래 코드로 되돌렸다 — 즉 **503 경로가 도달 불가능하다는 사실 자체가 폴백 설계가 제대로 동작하고 있다는 증거**다.
-- *"finishReason 체크를 안 하면 무슨 일이 생기나?"* → maxTokens(120)에 걸려 문장 중간에서 끊긴 응답을 사용자에게 그대로 보내게 된다. 예를 들어 "주문번호 12345의 무선 이어폰은 현재 배송" 같은 미완성 문장이 나갈 수 있다.
 
 ---
 
