@@ -7,7 +7,6 @@
 | 조원        | 황재원 (P345) · 박성우 (P322)                                                                                                                                    |
 | 실습 일자   | 2026-08-18                                                                                                                                                       |
 | 산출물 위치 | `SpringAI_실습/07_주문요약_메인실습` (별도 리포지토리: [github.com/wodnjs2020136144/day1-order-summary](https://github.com/wodnjs2020136144/day1-order-summary)) |
-| 제출 성격   | 평가 없음 — 실행/테스트 결과 캡처 및 설명 제출                                                                                                                   |
 
 ---
 
